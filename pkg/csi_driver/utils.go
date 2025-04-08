@@ -271,9 +271,13 @@ func parseRequestArguments(req *csi.NodePublishVolumeRequest) (string, string, [
 	}
 
 	vc := req.GetVolumeContext()
-	bucketName := req.GetVolumeId()
+	klog.V(3).Infof("NodePublishVolume bucketname1: %v", req.GetVolumeId())
+	bucketName := removeBucketSuffixIfPresentAndReturnVolumeId(req.GetVolumeId())
+	klog.V(3).Infof("NodePublishVolume bucketname2: %v", bucketName)
+
+	
 	if vc[VolumeContextKeyEphemeral] == util.TrueStr {
-		bucketName = vc[VolumeContextKeyBucketName]
+		bucketName = removeBucketSuffixIfPresentAndReturnVolumeId(vc[VolumeContextKeyBucketName])
 		if len(bucketName) == 0 {
 			return "", "", nil, false, false, fmt.Errorf("NodePublishVolume VolumeContext %q must be provided for ephemeral storage", VolumeContextKeyBucketName)
 		}
@@ -300,6 +304,12 @@ func parseRequestArguments(req *csi.NodePublishVolumeRequest) (string, string, [
 	}
 
 	return targetPath, bucketName, fuseMountOptions, skipCSIBucketAccessCheck, enableMetricsCollection, nil
+}
+
+//removes bucket suffix if is present, else leaves it alone and returns it
+func removeBucketSuffixIfPresentAndReturnVolumeId(bucketHandle string) string {
+	regEx := regexp.MustCompile(`:.*$`)
+	return regEx.ReplaceAllString(bucketHandle, "")
 }
 
 func putExitFile(pod *corev1.Pod, targetPath string) error {
