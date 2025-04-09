@@ -68,6 +68,8 @@ const (
 	tokenServerSidecarMinVersion        = "v1.12.2-gke.0" // #nosec G101
 )
 
+var volumeIDRegEx = regexp.MustCompile(`:.*$`)
+
 func NewVolumeCapabilityAccessMode(mode csi.VolumeCapability_AccessMode_Mode) *csi.VolumeCapability_AccessMode {
 	return &csi.VolumeCapability_AccessMode{Mode: mode}
 }
@@ -272,13 +274,14 @@ func parseRequestArguments(req *csi.NodePublishVolumeRequest) (string, string, [
 
 	vc := req.GetVolumeContext()
 	bucketName := req.GetVolumeId()
+
 	if vc[VolumeContextKeyEphemeral] == util.TrueStr {
 		bucketName = vc[VolumeContextKeyBucketName]
 		if len(bucketName) == 0 {
 			return "", "", nil, false, false, fmt.Errorf("NodePublishVolume VolumeContext %q must be provided for ephemeral storage", VolumeContextKeyBucketName)
 		}
 	}
-
+	bucketName = parseVolumeID(bucketName)
 	fuseMountOptions := []string{}
 	if req.GetReadonly() {
 		fuseMountOptions = joinMountOptions(fuseMountOptions, []string{"ro"})
@@ -300,6 +303,15 @@ func parseRequestArguments(req *csi.NodePublishVolumeRequest) (string, string, [
 	}
 
 	return targetPath, bucketName, fuseMountOptions, skipCSIBucketAccessCheck, enableMetricsCollection, nil
+}
+
+/*
+Removes the bucket suffix (after the last colon) if present.
+This allows users to specify multiple volume handles for the same bucket.
+If no suffix is present, the original bucket handle is returned unchanged.
+*/
+func parseVolumeID(bucketHandle string) string {
+	return volumeIDRegEx.ReplaceAllString(bucketHandle, "")
 }
 
 func putExitFile(pod *corev1.Pod, targetPath string) error {
