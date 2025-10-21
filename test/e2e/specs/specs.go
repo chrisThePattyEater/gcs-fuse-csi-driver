@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/googlecloudplatform/gcs-fuse-csi-driver/pkg/util"
 	"github.com/googlecloudplatform/gcs-fuse-csi-driver/pkg/webhook"
 	"github.com/onsi/gomega"
 	cloudresourcemanager "google.golang.org/api/cloudresourcemanager/v1"
@@ -34,6 +35,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/wait"
+
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/pkg/kubelet/events"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -105,6 +107,12 @@ type TestPod struct {
 	namespace *corev1.Namespace
 }
 
+func NewTestPodModifiedSpec(c clientset.Interface, ns *corev1.Namespace, setAutomountServiceAccountToken bool) *TestPod {
+	testpod := NewTestPod(c, ns)
+	testpod.pod.Spec.AutomountServiceAccountToken = ptr.To(setAutomountServiceAccountToken)
+	return testpod
+}
+
 func NewTestPod(c clientset.Interface, ns *corev1.Namespace) *TestPod {
 	cpu, _ := resource.ParseQuantity("100m")
 	mem, _ := resource.ParseQuantity("20Mi")
@@ -159,7 +167,7 @@ func NewTestPod(c clientset.Interface, ns *corev1.Namespace) *TestPod {
 				},
 				RestartPolicy:                corev1.RestartPolicyAlways,
 				Volumes:                      make([]corev1.Volume, 0),
-				AutomountServiceAccountToken: ptr.To(true),
+				AutomountServiceAccountToken: ptr.To(false),
 				Tolerations: []corev1.Toleration{
 					{Operator: corev1.TolerationOpExists},
 				},
@@ -181,6 +189,10 @@ func (t *TestPod) GetPodName() string {
 
 func (t *TestPod) GetPodVols() []corev1.Volume {
 	return t.pod.Spec.Volumes
+}
+
+func (t *TestPod) GetAutoMountServiceAccountToken() bool {
+	return *t.pod.Spec.AutomountServiceAccountToken
 }
 
 // VerifyExecInPodSucceed verifies shell cmd in target pod succeed.
@@ -418,7 +430,7 @@ func (t *TestPod) SetupCacheVolumeMount(mountPath string, subPath ...string) {
 
 func (t *TestPod) SetupTmpVolumeMount(mountPath string) {
 	volumeMount := corev1.VolumeMount{
-		Name:      webhook.SidecarContainerTmpVolumeName,
+		Name:      util.SidecarContainerTmpVolumeName,
 		MountPath: mountPath,
 	}
 	t.pod.Spec.Containers[0].VolumeMounts = append(t.pod.Spec.Containers[0].VolumeMounts, volumeMount)

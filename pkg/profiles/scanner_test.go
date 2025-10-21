@@ -15,7 +15,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package scanner
+package profiles
 
 import (
 	"context"
@@ -37,6 +37,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 
+	putil "github.com/googlecloudplatform/gcs-fuse-csi-driver/pkg/profiles/util"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -62,7 +63,7 @@ const (
 )
 
 var (
-	validSCParams = map[string]string{paramWorkloadTypeKey: paramWorkloadTypeInferenceKey}
+	validSCParams = map[string]string{workloadTypeKey: workloadTypeInferenceKey}
 	validSC       = createStorageClass(testSCName, validSCParams)
 	podLabels     = map[string]string{profileManagedLabelKey: profileManagedLabelValue}
 	scanResult    = &bucketInfo{
@@ -125,13 +126,15 @@ func (m *mockTime) Now() time.Time {
 // fakeScanBucketImplFunc provides a mock implementation of the scanBucketImpl function.
 // It allows simulating different scan outcomes, including errors and timeouts.
 type fakeScanBucketImplFunc struct {
-	bucketI *bucketInfo
-	err     error
+	bucketI   *bucketInfo
+	err       error
+	wasCalled bool
 }
 
 // Scan is the mock implementation of the scanBucketImpl function.
 // It checks for context cancellation (like timeouts) before returning the predefined info and error.
 func (f *fakeScanBucketImplFunc) Scan(scanner *Scanner, ctx context.Context, bucketI *bucketInfo, scanTimeout time.Duration, pv *v1.PersistentVolume) error {
+	f.wasCalled = true
 	select {
 	case <-ctx.Done():
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -139,6 +142,11 @@ func (f *fakeScanBucketImplFunc) Scan(scanner *Scanner, ctx context.Context, buc
 		}
 		return ctx.Err()
 	default:
+		if f.err == nil && f.bucketI != nil {
+			bucketI.numObjects = f.bucketI.numObjects
+			bucketI.totalSizeBytes = f.bucketI.totalSizeBytes
+			bucketI.isHNSEnabled = f.bucketI.isHNSEnabled
+		}
 		return f.err
 	}
 }
@@ -341,14 +349,22 @@ func TestCheckPVRelevance(t *testing.T) {
 	lastUpdateTimeWithinTTL := now.Add(-ttl / 2).Format(time.RFC3339)
 	lastUpdateTimeOutsideTTL := now.Add(-ttl * 2).Format(time.RFC3339)
 
+	validOverrideAnnotations := map[string]string{
+		putil.AnnotationStatus:     putil.ScanOverride,
+		putil.AnnotationNumObjects: "1000",
+		putil.AnnotationTotalSize:  "200000",
+		putil.AnnotationHNSEnabled: "true",
+	}
+
 	testCases := []struct {
-		name         string
-		pv           *v1.PersistentVolume
-		scs          []*storagev1.StorageClass
-		wantRelevant bool
-		wantErr      bool
-		wantBucket   string
-		wantDir      string
+		name           string
+		pv             *v1.PersistentVolume
+		scs            []*storagev1.StorageClass
+		wantRelevant   bool
+		wantErr        bool
+		wantBucket     string
+		wantDir        string
+		wantIsOverride bool
 	}{
 		{
 			name:         "Relevant PV",
@@ -362,7 +378,7 @@ func TestCheckPVRelevance(t *testing.T) {
 			name: "Relevant PV - Training",
 			pv:   createPV(testPVName, testSCName, testBucketName, csiDriverName, nil, nil, nil),
 			scs: []*storagev1.StorageClass{
-				createStorageClass(testSCName, map[string]string{paramWorkloadTypeKey: paramWorkloadTypeTrainingKey}),
+				createStorageClass(testSCName, map[string]string{workloadTypeKey: workloadTypeTrainingKey}),
 			},
 			wantRelevant: true,
 			wantBucket:   testBucketName,
@@ -371,7 +387,7 @@ func TestCheckPVRelevance(t *testing.T) {
 			name: "Relevant PV - Inference",
 			pv:   createPV(testPVName, testSCName, testBucketName, csiDriverName, nil, nil, nil),
 			scs: []*storagev1.StorageClass{
-				createStorageClass(testSCName, map[string]string{paramWorkloadTypeKey: paramWorkloadTypeInferenceKey}),
+				createStorageClass(testSCName, map[string]string{workloadTypeKey: workloadTypeInferenceKey}),
 			},
 			wantRelevant: true,
 			wantBucket:   testBucketName,
@@ -380,7 +396,7 @@ func TestCheckPVRelevance(t *testing.T) {
 			name: "Relevant PV - Checkpointing",
 			pv:   createPV(testPVName, testSCName, testBucketName, csiDriverName, nil, nil, nil),
 			scs: []*storagev1.StorageClass{
-				createStorageClass(testSCName, map[string]string{paramWorkloadTypeKey: paramWorkloadTypeCheckpointingKey}),
+				createStorageClass(testSCName, map[string]string{workloadTypeKey: workloadTypeCheckpointingKey}),
 			},
 			wantRelevant: true,
 			wantBucket:   testBucketName,
@@ -389,7 +405,7 @@ func TestCheckPVRelevance(t *testing.T) {
 			name: "Irrelevant - Wrong Driver",
 			pv:   createPV(testPVName, testSCName, testBucketName, "blah", nil, nil, nil),
 			scs: []*storagev1.StorageClass{
-				createStorageClass(testSCName, map[string]string{paramWorkloadTypeKey: paramWorkloadTypeCheckpointingKey}),
+				createStorageClass(testSCName, map[string]string{workloadTypeKey: workloadTypeCheckpointingKey}),
 			},
 			wantRelevant: false,
 		},
@@ -403,14 +419,14 @@ func TestCheckPVRelevance(t *testing.T) {
 			name: "Error - Invalid Workload Type",
 			pv:   createPV(testPVName, testSCName, testBucketName, csiDriverName, nil, nil, nil),
 			scs: []*storagev1.StorageClass{
-				createStorageClass(testSCName, map[string]string{paramWorkloadTypeKey: "blah"}),
+				createStorageClass(testSCName, map[string]string{workloadTypeKey: "blah"}),
 			},
-			wantErr: false,
+			wantErr: true,
 		},
 		{
 			name: "Irrelevant - Within TTL",
 			pv: createPV(testPVName, testSCName, testBucketName, csiDriverName, nil, map[string]string{
-				annotationLastUpdatedTime: lastUpdateTimeWithinTTL,
+				putil.AnnotationLastUpdatedTime: lastUpdateTimeWithinTTL,
 			}, nil),
 			scs:          []*storagev1.StorageClass{validSC},
 			wantRelevant: false,
@@ -418,11 +434,65 @@ func TestCheckPVRelevance(t *testing.T) {
 		{
 			name: "Relevant - Outside TTL",
 			pv: createPV(testPVName, testSCName, testBucketName, csiDriverName, nil, map[string]string{
-				annotationLastUpdatedTime: lastUpdateTimeOutsideTTL,
+				putil.AnnotationLastUpdatedTime: lastUpdateTimeOutsideTTL,
 			}, nil),
 			scs:          []*storagev1.StorageClass{validSC},
 			wantRelevant: true,
 			wantBucket:   testBucketName,
+		},
+		{
+			name:           "Relevant - Override mode - Should return relevant and override",
+			pv:             createPV(testPVName, testSCName, testBucketName, csiDriverName, nil, validOverrideAnnotations, nil),
+			scs:            []*storagev1.StorageClass{validSC},
+			wantRelevant:   true,
+			wantBucket:     testBucketName,
+			wantIsOverride: true,
+		},
+		{
+			name: "Irrelevant - Override mode - Missing Annotations - Should return error",
+			pv: createPV(testPVName, testSCName, testBucketName, csiDriverName, nil, map[string]string{
+				putil.AnnotationStatus: putil.ScanOverride,
+				// Missing other required annotations
+			}, nil),
+			scs:          []*storagev1.StorageClass{validSC},
+			wantRelevant: false,
+			wantErr:      true,
+		},
+		{
+			name: "Irrelevant - Override mode - Invalid NumObjects - Should return error",
+			pv: createPV(testPVName, testSCName, testBucketName, csiDriverName, nil, map[string]string{
+				putil.AnnotationStatus:     putil.ScanOverride,
+				putil.AnnotationNumObjects: "not-a-number",
+				putil.AnnotationTotalSize:  "200000",
+				putil.AnnotationHNSEnabled: "true",
+			}, nil),
+			scs:          []*storagev1.StorageClass{validSC},
+			wantRelevant: false,
+			wantErr:      true,
+		},
+		{
+			name: "Irrelevant - Override mode - Negative NumObjects - Should return error",
+			pv: createPV(testPVName, testSCName, testBucketName, csiDriverName, nil, map[string]string{
+				putil.AnnotationStatus:     putil.ScanOverride,
+				putil.AnnotationNumObjects: "-100",
+				putil.AnnotationTotalSize:  "200000",
+				putil.AnnotationHNSEnabled: "true",
+			}, nil),
+			scs:          []*storagev1.StorageClass{validSC},
+			wantRelevant: false,
+			wantErr:      true,
+		},
+		{
+			name: "Irrelevant - Override mode - Invalid HNSEnabled - Should return error",
+			pv: createPV(testPVName, testSCName, testBucketName, csiDriverName, nil, map[string]string{
+				putil.AnnotationStatus:     putil.ScanOverride,
+				putil.AnnotationNumObjects: "1000",
+				putil.AnnotationTotalSize:  "200000",
+				putil.AnnotationHNSEnabled: "not-a-bool",
+			}, nil),
+			scs:          []*storagev1.StorageClass{validSC},
+			wantRelevant: false,
+			wantErr:      true,
 		},
 	}
 
@@ -461,6 +531,9 @@ func TestCheckPVRelevance(t *testing.T) {
 				if bucketI.dir != tc.wantDir {
 					t.Errorf("checkPVRelevance(%v) dir = %q, want %q", tc.pv.Name, bucketI.dir, tc.wantDir)
 				}
+				if bucketI.isOverride != tc.wantIsOverride {
+					t.Errorf("checkPVRelevance(%v) isOverride = %v, want %v", tc.pv.Name, bucketI.isOverride, tc.wantIsOverride)
+				}
 			}
 		})
 	}
@@ -476,16 +549,26 @@ func TestSyncPV(t *testing.T) {
 	irrelevantSC := createStorageClass("irrelevant-sc", map[string]string{"some": "param"})
 	pvIrrelevantSC := createPV("irrelevant-pv", "irrelevant-sc", bucketName, csiDriverName, nil, nil, nil)
 
+	overrideAnnotations := map[string]string{
+		putil.AnnotationStatus:     putil.ScanOverride,
+		putil.AnnotationNumObjects: "111",
+		putil.AnnotationTotalSize:  "2222",
+		putil.AnnotationHNSEnabled: "false",
+	}
+	pvOverride := createPV(pvName, scName, bucketName, csiDriverName, nil, overrideAnnotations, nil)
+
 	testCases := []struct {
 		name           string
 		key            string
 		initialObjects []runtime.Object
-		bucketI        *bucketInfo
+		bucketI        *bucketInfo // Mocked result for non-override scans
 		scanErr        error
 		patchErr       error
 		wantErr        bool
 		expectAnnotate bool
 		expectedStatus string
+		expectScanCall bool
+		expectedAnnots map[string]string // Specific annotations to check for override
 	}{
 		{
 			name:           "Successful Sync",
@@ -495,6 +578,7 @@ func TestSyncPV(t *testing.T) {
 			wantErr:        false,
 			expectAnnotate: true,
 			expectedStatus: scanCompleted,
+			expectScanCall: true,
 		},
 		{
 			name:           "Scan Error",
@@ -502,6 +586,7 @@ func TestSyncPV(t *testing.T) {
 			initialObjects: []runtime.Object{basePV.DeepCopy(), relevantSC},
 			scanErr:        fmt.Errorf("scan failed"),
 			wantErr:        true,
+			expectScanCall: true,
 		},
 		{
 			name:           "Scan Timeout",
@@ -512,6 +597,7 @@ func TestSyncPV(t *testing.T) {
 			wantErr:        false,
 			expectAnnotate: true,
 			expectedStatus: scanTimeout,
+			expectScanCall: true,
 		},
 		{
 			name:           "Patch Error",
@@ -520,12 +606,14 @@ func TestSyncPV(t *testing.T) {
 			bucketI:        scanResult,
 			patchErr:       fmt.Errorf("patch failed"),
 			wantErr:        true,
+			expectScanCall: true,
 		},
 		{
 			name:           "PV Not Found",
 			key:            pvName,
 			initialObjects: []runtime.Object{relevantSC},
 			wantErr:        false, // Not found is not an error for syncPV, just stops processing.
+			expectScanCall: false,
 		},
 		{
 			name:           "PV Not Relevant",
@@ -533,6 +621,21 @@ func TestSyncPV(t *testing.T) {
 			initialObjects: []runtime.Object{pvIrrelevantSC, irrelevantSC},
 			wantErr:        false,
 			expectAnnotate: false,
+			expectScanCall: false,
+		},
+		{
+			name:           "Successful Sync - Override Mode - Should bypass scan",
+			key:            pvName,
+			initialObjects: []runtime.Object{pvOverride.DeepCopy(), relevantSC},
+			wantErr:        false,
+			expectAnnotate: true,
+			expectedStatus: putil.ScanOverride,
+			expectScanCall: false, // Scan should be bypassed
+			expectedAnnots: map[string]string{
+				putil.AnnotationNumObjects: "111",
+				putil.AnnotationTotalSize:  "2222",
+				putil.AnnotationHNSEnabled: "false",
+			},
 		},
 	}
 
@@ -542,6 +645,7 @@ func TestSyncPV(t *testing.T) {
 
 			f.scanBucketFn.bucketI = tc.bucketI
 			f.scanBucketFn.err = tc.scanErr
+			f.scanBucketFn.wasCalled = false
 
 			if tc.patchErr != nil {
 				f.kubeClient.PrependReactor("patch", "persistentvolumes", func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {
@@ -555,6 +659,10 @@ func TestSyncPV(t *testing.T) {
 				t.Errorf("syncPV(%q) returned error: %v, wantErr: %v", tc.key, err, tc.wantErr)
 			}
 
+			if f.scanBucketFn.wasCalled != tc.expectScanCall {
+				t.Errorf("syncPV(%q) scanBucketImpl call status: got %v, want %v", tc.key, f.scanBucketFn.wasCalled, tc.expectScanCall)
+			}
+
 			if tc.expectAnnotate {
 				updatedPV, err := f.kubeClient.CoreV1().PersistentVolumes().Get(context.Background(), tc.key, metav1.GetOptions{})
 				if err != nil {
@@ -563,11 +671,19 @@ func TestSyncPV(t *testing.T) {
 				if updatedPV.Annotations == nil {
 					t.Errorf("Expected annotations to be set")
 				}
-				if status := updatedPV.Annotations[annotationStatus]; status != tc.expectedStatus {
-					t.Errorf("Annotation %q: got %v, want %v", annotationStatus, status, tc.expectedStatus)
+				if status := updatedPV.Annotations[putil.AnnotationStatus]; status != tc.expectedStatus {
+					t.Errorf("Annotation %q: got %v, want %v", putil.AnnotationStatus, status, tc.expectedStatus)
 				}
-				if _, exists := updatedPV.Annotations[annotationLastUpdatedTime]; !exists {
-					t.Errorf("Annotation %q not found", annotationLastUpdatedTime)
+				if _, exists := updatedPV.Annotations[putil.AnnotationLastUpdatedTime]; !exists {
+					t.Errorf("Annotation %q not found", putil.AnnotationLastUpdatedTime)
+				}
+
+				if tc.expectedAnnots != nil {
+					for key, want := range tc.expectedAnnots {
+						if got := updatedPV.Annotations[key]; got != want {
+							t.Errorf("Annotation %q: got %v, want %v", key, got, want)
+						}
+					}
 				}
 			}
 		})
@@ -589,6 +705,17 @@ func TestSyncPod(t *testing.T) {
 	volNotRelevant := v1.Volume{Name: "vol2", VolumeSource: v1.VolumeSource{PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{ClaimName: "pvc-not-relevant"}}}
 	volUnbound := v1.Volume{Name: "vol3", VolumeSource: v1.VolumeSource{PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{ClaimName: "pvc-unbound"}}}
 	volMissingPVC := v1.Volume{Name: "vol4", VolumeSource: v1.VolumeSource{PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{ClaimName: "pvc-missing"}}}
+
+	// Resources for Override test
+	pvOverrideAnnotations := map[string]string{
+		putil.AnnotationStatus:     putil.ScanOverride,
+		putil.AnnotationNumObjects: "100",
+		putil.AnnotationTotalSize:  "200",
+		putil.AnnotationHNSEnabled: "true",
+	}
+	pvOverride := createPV("pv-override", testSCName, testBucketName, csiDriverName, nil, pvOverrideAnnotations, nil)
+	pvcBoundOverride := createPVC("pvc-override", testNamespace, "pv-override", testSCName)
+	volOverride := v1.Volume{Name: "vol-override", VolumeSource: v1.VolumeSource{PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{ClaimName: "pvc-override"}}}
 
 	testCases := []struct {
 		name              string
@@ -649,6 +776,13 @@ func TestSyncPod(t *testing.T) {
 			wantErr:          true,
 			expectRequeueErr: false,
 		},
+		{
+			name:              "Pod with Override PV - Should remove gate",
+			pod:               createPod(testPodName, testNamespace, []v1.Volume{volOverride}, podLabels, true),
+			initialObjects:    []runtime.Object{pvOverride, scValid, pvcBoundOverride},
+			expectGateRemoved: true,
+			expectPVEnqueued:  "", // Override PV should not be enqueued for scan
+		},
 	}
 
 	for _, tc := range testCases {
@@ -675,19 +809,25 @@ func TestSyncPod(t *testing.T) {
 				}
 			}
 
-			if tc.expectPVEnqueued != "" {
-				pvKey := pvPrefix + tc.expectPVEnqueued
-				found := false
-				for i := 0; i < f.scanner.queue.Len(); i++ {
-					item, _ := f.scanner.queue.Get()
-					if item == pvKey {
-						found = true
-					}
-					f.scanner.queue.Done(item)
+			// Check PV Enqueue status
+			pvKey := pvPrefix + tc.expectPVEnqueued
+			found := false
+			queueLen := f.scanner.queue.Len()
+			for i := 0; i < queueLen; i++ {
+				item, shutDown := f.scanner.queue.Get()
+				if shutDown {
+					break
 				}
-				if !found {
-					t.Errorf("Expected PV %q to be enqueued, but not found in queue", tc.expectPVEnqueued)
+				if item == pvKey {
+					found = true
 				}
+				f.scanner.queue.Done(item)
+			}
+			if tc.expectPVEnqueued != "" && !found {
+				t.Errorf("Expected PV %q to be enqueued, but not found in queue", tc.expectPVEnqueued)
+			}
+			if tc.expectPVEnqueued == "" && found {
+				t.Errorf("Expected no PV to be enqueued, but found %q", pvKey)
 			}
 
 			if tc.expectGateRemoved {
@@ -821,8 +961,8 @@ func TestProcessNextWorkItem(t *testing.T) {
 				if err != nil {
 					t.Fatalf("Failed to get PV: %v", err)
 				}
-				if status := updatedPV.Annotations[annotationStatus]; status != tc.expectedStatus {
-					t.Errorf("Annotation %q: got %v, want %v", annotationStatus, status, tc.expectedStatus)
+				if status := updatedPV.Annotations[putil.AnnotationStatus]; status != tc.expectedStatus {
+					t.Errorf("Annotation %q: got %v, want %v", putil.AnnotationStatus, status, tc.expectedStatus)
 				}
 			}
 
@@ -1045,11 +1185,11 @@ func TestUpdatePVScanResult(t *testing.T) {
 
 	// Define the expected annotations.
 	expectedAnnotations := map[string]string{
-		annotationStatus:          status,
-		annotationNumObjects:      "999",
-		annotationTotalSize:       "8888",
-		annotationHNSEnabled:      "true",
-		annotationLastUpdatedTime: now.UTC().Format(time.RFC3339),
+		putil.AnnotationStatus:          status,
+		putil.AnnotationNumObjects:      "999",
+		putil.AnnotationTotalSize:       "8888",
+		putil.AnnotationHNSEnabled:      "true",
+		putil.AnnotationLastUpdatedTime: now.UTC().Format(time.RFC3339),
 	}
 
 	// Verify each expected annotation.

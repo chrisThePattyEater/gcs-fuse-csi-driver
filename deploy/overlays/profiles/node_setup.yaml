@@ -13,18 +13,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-apiVersion: storage.k8s.io/v1
-kind: CSIDriver
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: gcsfuse.csi.storage.gke.io
-spec:
-  attachRequired: false
-  podInfoOnMount: true
-  volumeLifecycleModes:
-    - Persistent
-    - Ephemeral
-  requiresRepublish: true
-  fsGroupPolicy: None
-  tokenRequests:
-    # When you use the cloudbuild-install.yaml script, it automatically patches this audience value to match the discovered or provided IDENTITY_PROVIDER for your cluster.
-    - audience: <project-id>.svc.id.goog
+  name: gcs-fuse-csi-publisher-role
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "watch", "list"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "watch", "list"]
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["get"]
+# Required to read PV annotations.
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch"]
+# Required to get gcsfuse profile configs.
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
+

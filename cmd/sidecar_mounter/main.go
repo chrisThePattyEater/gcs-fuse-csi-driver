@@ -30,7 +30,6 @@ import (
 	"time"
 
 	"cloud.google.com/go/profiler"
-	"github.com/googlecloudplatform/gcs-fuse-csi-driver/pkg/cloud_provider/clientset"
 	driver "github.com/googlecloudplatform/gcs-fuse-csi-driver/pkg/csi_driver"
 	sidecarmounter "github.com/googlecloudplatform/gcs-fuse-csi-driver/pkg/sidecar_mounter"
 	"github.com/googlecloudplatform/gcs-fuse-csi-driver/pkg/webhook"
@@ -64,11 +63,6 @@ func main() {
 	if err != nil {
 		klog.Fatalf("failed to look up socket paths: %v", err)
 	}
-
-	clientset, err := clientset.New(*kubeconfigPath, *informerResyncDurationSec)
-	if err != nil {
-		klog.Fatalf("Failed to configure k8s client: %v", err)
-	}
 	mounter := sidecarmounter.New(*gcsfusePath)
 	ctx, cancel := context.WithCancel(context.Background())
 	flagsFromDriver := map[string]string{}
@@ -101,9 +95,9 @@ func main() {
 		}
 		if mc != nil {
 			if mc.EnableSidecarBucketAccessCheck {
-				tm, ssm, err := mounter.SetupTokenAndStorageManager(clientset, mc)
+				tm, ssm, err := mounter.SetupTokenAndStorageManager(nil /*k8sClientset*/, mc)
 				if err != nil {
-					klog.Errorf("Failed to fetch identity pool and identity provider details required for bucket access check, got error %v", err)
+					klog.Fatalf("Failed to fetch identity pool and identity provider details required for bucket access check, got error %v", err)
 				}
 				mounter.TokenManager = tm
 				mounter.StorageServiceManager = ssm

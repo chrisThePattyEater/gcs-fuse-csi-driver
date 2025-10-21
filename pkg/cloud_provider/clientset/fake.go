@@ -24,34 +24,65 @@ import (
 	"github.com/googlecloudplatform/gcs-fuse-csi-driver/pkg/webhook"
 	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type FakeNodeConfig struct {
 	IsWorkloadIdentityEnabled bool
 	MachineType               string
+	Status                    corev1.NodeStatus
+}
+
+type FakePodConfig struct {
+	HostNetworkEnabled bool
+	SidecarLimits      corev1.ResourceList
+}
+
+type FakePVConfig struct {
+	Annotations map[string]string
+	SCName      string
+}
+
+type FakeSCConfig struct {
+	Parameters   map[string]string
+	MountOptions []string
 }
 
 type FakeClientset struct {
 	fakePod  *corev1.Pod
 	fakeNode *corev1.Node
+	fakePV   *corev1.PersistentVolume
+	fakeSC   *storagev1.StorageClass
 }
 
 func NewFakeClientset() *FakeClientset {
 	fakeClientSet := &FakeClientset{}
 	// Default setting for most unit tests is pod doesn't use host network & workload identity is enabled on the node
-	fakeClientSet.CreatePod( /*hostNetworkEnabled */ false)
+	fakeClientSet.CreatePod(FakePodConfig{HostNetworkEnabled: false})
 	fakeClientSet.CreateNode(FakeNodeConfig{IsWorkloadIdentityEnabled: true})
+	fakeClientSet.CreatePV(FakePVConfig{})
+	fakeClientSet.CreateSC(FakeSCConfig{})
 
 	return fakeClientSet
 }
 
-func (c *FakeClientset) ConfigurePodLister(_ string) {}
+func (c *FakeClientset) ConfigurePodLister(_ context.Context, _ string) {}
 
-func (c *FakeClientset) ConfigureNodeLister(_ string) {}
+func (c *FakeClientset) ConfigureNodeLister(_ context.Context, _ string) {}
 
-func (c *FakeClientset) CreatePod(hostNetworkEnabled bool) {
+func (c *FakeClientset) ConfigurePVLister(_ context.Context) {}
+
+func (c *FakeClientset) ConfigureSCLister(_ context.Context) {}
+
+func (c *FakeClientset) CreatePod(podConfig FakePodConfig) {
 	config := webhook.FakeConfig()
+
+	if podConfig.SidecarLimits != nil {
+		config.MemoryLimit = podConfig.SidecarLimits[corev1.ResourceMemory]
+		config.EphemeralStorageLimit = podConfig.SidecarLimits[corev1.ResourceEphemeralStorage]
+	}
+
 	c.fakePod = &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "",
@@ -75,7 +106,7 @@ func (c *FakeClientset) CreatePod(hostNetworkEnabled bool) {
 		},
 	}
 
-	if hostNetworkEnabled {
+	if podConfig.HostNetworkEnabled {
 		c.fakePod.Spec.HostNetwork = true
 	}
 }
@@ -93,6 +124,31 @@ func (c *FakeClientset) CreateNode(nodeConfig FakeNodeConfig) {
 	if c.fakeNode.Labels[MachineTypeKey] == "" {
 		c.fakeNode.Labels[MachineTypeKey] = "e2-medium"
 	}
+	c.fakeNode.Status = nodeConfig.Status
+}
+
+func (c *FakeClientset) CreatePV(pvConfig FakePVConfig) {
+	c.fakePV = &corev1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "",
+			Labels: map[string]string{},
+		},
+	}
+
+	c.fakePV.Annotations = pvConfig.Annotations
+	c.fakePV.Spec.StorageClassName = pvConfig.SCName
+}
+
+func (c *FakeClientset) CreateSC(scConfig FakeSCConfig) {
+	c.fakeSC = &storagev1.StorageClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "",
+			Labels: map[string]string{},
+		},
+	}
+
+	c.fakeSC.MountOptions = scConfig.MountOptions
+	c.fakeSC.Parameters = scConfig.Parameters
 }
 
 func (c *FakeClientset) GetPod(namespace, name string) (*corev1.Pod, error) {
@@ -106,6 +162,18 @@ func (c *FakeClientset) GetNode(name string) (*corev1.Node, error) {
 	c.fakeNode.ObjectMeta.Name = name
 
 	return c.fakeNode, nil
+}
+
+func (c *FakeClientset) GetPV(name string) (*corev1.PersistentVolume, error) {
+	c.fakePV.ObjectMeta.Name = name
+
+	return c.fakePV, nil
+}
+
+func (c *FakeClientset) GetSC(name string) (*storagev1.StorageClass, error) {
+	c.fakeSC.ObjectMeta.Name = name
+
+	return c.fakeSC, nil
 }
 
 func (c *FakeClientset) CreateServiceAccountToken(_ context.Context, _, _ string, _ *authenticationv1.TokenRequest) (*authenticationv1.TokenRequest, error) {

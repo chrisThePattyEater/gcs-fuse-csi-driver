@@ -17,6 +17,7 @@ export REGISTRY ?= jiaxun
 export STAGINGVERSION ?= $(shell git describe --long --tags --match='v*' --dirty 2>/dev/null || git rev-list -n1 HEAD)
 export OVERLAY ?= stable
 export BUILD_GCSFUSE_FROM_SOURCE ?= false
+export GCSFUSE_TAG ?= master
 export BUILD_ARM ?= false
 export WI_NODE_LABEL_CHECK ?= true
 BINDIR ?= $(shell pwd)/bin
@@ -73,18 +74,20 @@ webhook:
 
 download-gcsfuse:
 	mkdir -p ${BINDIR}/linux/amd64 ${BINDIR}/linux/arm64
-
 ifeq (${BUILD_GCSFUSE_FROM_SOURCE}, true)
 	rm -f ${BINDIR}/Dockerfile.gcsfuse
-	curl https://raw.githubusercontent.com/GoogleCloudPlatform/gcsfuse/master/tools/package_gcsfuse_docker/Dockerfile -o ${BINDIR}/Dockerfile.gcsfuse
-	$(eval GCSFUSE_VERSION=0.0.1-gcsfuse-git-master-$(shell git ls-remote https://github.com/GoogleCloudPlatform/gcsfuse.git HEAD | cut -c1-7))
-
+	curl https://raw.githubusercontent.com/GoogleCloudPlatform/gcsfuse/${GCSFUSE_TAG}/tools/package_gcsfuse_docker/Dockerfile -o ${BINDIR}/Dockerfile.gcsfuse
+ifeq ($(GCSFUSE_TAG), master)
+	$(eval GCSFUSE_VERSION = 0.0.1-gcsfuse-git-master-$(shell git ls-remote https://github.com/GoogleCloudPlatform/gcsfuse.git HEAD | cut -c1-7))
+else
+	$(eval GCSFUSE_VERSION=$(shell echo ${GCSFUSE_TAG} | sed 's/^v//'))
+endif
 	docker buildx build \
 		--load \
 		--file ${BINDIR}/Dockerfile.gcsfuse \
 		--tag gcsfuse-release:${GCSFUSE_VERSION}-amd \
 		--build-arg GCSFUSE_VERSION=${GCSFUSE_VERSION} \
-		--build-arg BRANCH_NAME=master \
+		--build-arg BRANCH_NAME=${GCSFUSE_TAG} \
 		--build-arg ARCHITECTURE=amd64 \
 		--platform=linux/amd64 .
 
@@ -92,38 +95,32 @@ ifeq (${BUILD_GCSFUSE_FROM_SOURCE}, true)
 		-v ${BINDIR}/linux/amd64:/release \
 		gcsfuse-release:${GCSFUSE_VERSION}-amd \
 		cp /gcsfuse_${GCSFUSE_VERSION}_amd64/usr/bin/gcsfuse /release
-
 ifeq (${BUILD_ARM}, true)
 	docker buildx build \
 		--load \
 		--file ${BINDIR}/Dockerfile.gcsfuse \
 		--tag gcsfuse-release:${GCSFUSE_VERSION}-arm \
 		--build-arg GCSFUSE_VERSION=${GCSFUSE_VERSION} \
-		--build-arg BRANCH_NAME=master \
+		--build-arg BRANCH_NAME=${GCSFUSE_TAG} \
 		--build-arg ARCHITECTURE=arm64 \
 		--platform=linux/arm64 .
-
 	docker run \
 		-v ${BINDIR}/linux/arm64:/release \
 		gcsfuse-release:${GCSFUSE_VERSION}-arm \
 		cp /gcsfuse_${GCSFUSE_VERSION}_arm64/usr/bin/gcsfuse /release
 endif
-
 else
 	gsutil cp ${GCSFUSE_PATH}/linux/amd64/gcsfuse ${BINDIR}/linux/amd64/gcsfuse
 ifeq (${BUILD_ARM}, true)
 	gsutil cp ${GCSFUSE_PATH}/linux/arm64/gcsfuse ${BINDIR}/linux/arm64/gcsfuse
 endif
 endif
-
 	chmod +x ${BINDIR}/linux/amd64/gcsfuse
 	chmod 0555 ${BINDIR}/linux/amd64/gcsfuse
-
 ifeq (${BUILD_ARM}, true)
 	chmod +x ${BINDIR}/linux/arm64/gcsfuse
 	chmod 0555 ${BINDIR}/linux/arm64/gcsfuse
 endif
-
 	${BINDIR}/linux/$(shell dpkg --print-architecture)/gcsfuse --version
 
 init-buildx:
