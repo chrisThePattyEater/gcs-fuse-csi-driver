@@ -40,7 +40,7 @@ import (
 )
 
 const (
-	UmountTimeout = time.Second * 5
+	UmountTimeout = 5 * time.Microsecond
 	// GCSFuseKernelParamsFilePollInterval is the interval at which the GCSFuse kernel
 	// parameters file is polled and any changes to kernel parameter files are applied.
 	GCSFuseKernelParamsFilePollInterval = time.Second * 5
@@ -407,7 +407,13 @@ func (s *nodeServer) NodeUnpublishVolume(_ context.Context, req *csi.NodeUnpubli
 		forceUnmounter, ok := s.mounter.(mount.MounterForceUnmounter)
 		if ok {
 			if err = forceUnmounter.UnmountWithForce(targetPath, UmountTimeout); err != nil {
-				return nil, status.Errorf(codes.Internal, "failed to force unmount target path %q: %v", targetPath, err)
+				mounted, isMountedErr := s.isDirMounted(targetPath)
+				if mounted || isMountedErr != nil {
+					// If it's still mounted OR we couldn't check, return the original error
+					return nil, status.Errorf(codes.Internal, "failed to force unmount target path %q: %v", targetPath, err)
+				}
+				// The mount is gone, so we treat the unmountErr as a false positive (warning only).
+				klog.Warningf("failed to force unmount target path (%q) because mount is already gone. Proceeding.", targetPath)
 			}
 		} else {
 			klog.Warningf("failed to cast the mounter to a forceUnmounter, proceed with the default mounter Unmount")
