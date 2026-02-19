@@ -60,7 +60,7 @@ spec:
               # Setting to a high number, otherwise the Kustomize strategic
               # merge logic will not unset the CPU limit specified in base.
               cpu: "2"
-              memory: 200Mi
+              memory: 400Mi
             requests:
               cpu: 10m
               memory: 80Mi
