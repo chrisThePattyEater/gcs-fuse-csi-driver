@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.2
 // - protoc             v3.21.12
-// source: proto/mounter/mounter.proto
+// source: mounter.proto
 
 package mounter
 
@@ -117,5 +117,5 @@ var Mounter_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "proto/mounter/mounter.proto",
+	Metadata: "mounter.proto",
 }

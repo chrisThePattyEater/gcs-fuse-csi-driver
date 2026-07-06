@@ -598,6 +598,39 @@ func TestMountErrorFileCleanup(t *testing.T) {
 	}
 }
 
+func TestMountToNodeErrorFileCleanup(t *testing.T) {
+	t.Parallel()
+
+	tempDir, err := os.MkdirTemp("", "sidecar-mounter-test-node")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	errFilePath := filepath.Join(tempDir, util.ErrorFileName)
+	if err := os.WriteFile(errFilePath, []byte("fake error"), 0644); err != nil {
+		t.Fatalf("failed to write error file: %v", err)
+	}
+
+	mc := &MountConfig{
+		BucketName:       "test-bucket",
+		VolumeName:       "test-volume",
+		TempDir:          tempDir,
+		BufferDir:        filepath.Join(tempDir, "buffer"),
+		CacheDir:         filepath.Join(tempDir, "cache"),
+		ErrWriter:        NewErrorWriter(errFilePath),
+		SharedMountPoint: filepath.Join(tempDir, "mount"),
+	}
+
+	mounter := New("true")
+	_ = mounter.MountToNode(context.Background(), context.Background(), mc)
+	mounter.WaitGroup.Wait()
+
+	if _, err := os.Stat(errFilePath); !os.IsNotExist(err) {
+		t.Fatalf("expected error file to be deleted, but it still exists (or another error occurred: %v)", err)
+	}
+}
+
 func TestPrepareConfigFile(t *testing.T) {
 	testCases := []struct {
 		name           string
