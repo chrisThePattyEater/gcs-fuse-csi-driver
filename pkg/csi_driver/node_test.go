@@ -330,7 +330,7 @@ func TestExecuteNodeStageVolume(t *testing.T) {
 	if err := os.MkdirAll(mounterSocketDirValid, 0755); err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	validSocketFile := filepath.Join(mounterSocketDirValid, mounterPodSocketFile)
+	validSocketFile := filepath.Join(mounterSocketDirValid, MounterPodSocketFile)
 
 	_ = startFakeMounterServer(t, validSocketFile)
 
@@ -1026,7 +1026,7 @@ func TestNodeStageVolume(t *testing.T) {
 	if err := os.MkdirAll(mounterSocketDirValid, 0755); err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	validSocketFile := filepath.Join(mounterSocketDirValid, mounterPodSocketFile)
+	validSocketFile := filepath.Join(mounterSocketDirValid, MounterPodSocketFile)
 
 	fakeServer := startFakeMounterServer(t, validSocketFile)
 
@@ -1412,7 +1412,7 @@ func TestMountToNode(t *testing.T) {
 				return emptyDirBasePath
 			}
 
-			socketFile := filepath.Join(emptyDirBasePath, mounterPodSocketFile)
+			socketFile := filepath.Join(emptyDirBasePath, MounterPodSocketFile)
 
 			startFakeMounterServer(t, socketFile)
 
@@ -2719,7 +2719,7 @@ func TestNodeStageVolumeEnableGCSFuseKernelParams(t *testing.T) {
 			socketDir := filepath.Join(tmpDir, "s")
 			emptyDirBasePath := filepath.Join(tmpDir, "e")
 
-			sockFile := filepath.Join(emptyDirBasePath, string(podUID), mounterPodSocketFile)
+			sockFile := filepath.Join(emptyDirBasePath, string(podUID), MounterPodSocketFile)
 			mounterServer := startFakeMounterServer(t, sockFile)
 
 			fc := clientset.NewFakeClientset()

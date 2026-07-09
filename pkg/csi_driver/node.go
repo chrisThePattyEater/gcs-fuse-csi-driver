@@ -920,7 +920,7 @@ func (s *nodeServer) executeNodeStageVolume(ctx context.Context, req *csi.NodeSt
 	if profilesEnabled {
 		klog.V(4).Infof("NodeStageVolume gcsfuse profiles feature is enabled for mounter pod %s/%s", podNamespace, podName)
 		profile, err = profiles.BuildProfileConfig(&profiles.BuildProfileConfigParams{
-			VolumeName:          vc[util.VolumeContextKeyPVName],
+			VolumeName:          pvName,
 			Clientset:           s.k8sClients,
 			ContainerName:       util.MounterPodNamePrefix,
 			VolumeAttributeKeys: transformKeysToSet(volumeAttributesToMountOptionsMapping),
@@ -1020,7 +1020,7 @@ func (s *nodeServer) mountToNode(ctx context.Context, podUID, stagingPath, volum
 		return status.Errorf(codes.Internal, "empty dir base path must be provided for shared mount")
 	}
 	emptyDirBasePath := s.driver.config.FeatureOptions.SharedMountOptions.EmptyDirBasePath(podUID)
-	socketFile := filepath.Join(emptyDirBasePath, mounterPodSocketFile)
+	socketFile := filepath.Join(emptyDirBasePath, MounterPodSocketFile)
 
 	// Create a symlink to bypass the 108-character limit for Unix domain sockets
 	// when dialing the connection from the Node Server.
