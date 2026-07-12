@@ -58,7 +58,7 @@ var (
 func runNodeMounter(ctx context.Context, cancel context.CancelFunc, mounter *sidecarmounter.Mounter) {
 	klog.Infof("Running node mounter...")
 	s := driver.NewNonBlockingGRPCServer()
-	ms := sidecarmounter.NewMounterServer(ctx, mounter)
+ms := sidecarmounter.NewMounterServer(mounter)
 
 	socketFile := filepath.Join(webhook.SidecarContainerTmpVolumeMountPath, driver.MounterPodSocketFile)
 
@@ -75,7 +75,7 @@ func runNodeMounter(ctx context.Context, cancel context.CancelFunc, mounter *sid
 	s.Start(socketPath, nil, nil, nil, ms)
 
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, syscall.SIGTERM)
+	signal.Notify(c, syscall.SIGTERM, syscall.SIGINT)
 	klog.Info("Waiting for SIGTERM signal...")
 	<-c
 	klog.Info("Received SIGTERM signal, waiting for the gcsfuse process to exit...")
