@@ -31,6 +31,7 @@ import (
 	"github.com/googlecloudplatform/gcs-fuse-csi-driver/pkg/profiles"
 	"github.com/googlecloudplatform/gcs-fuse-csi-driver/pkg/util"
 	"github.com/googlecloudplatform/gcs-fuse-csi-driver/pkg/webhook"
+	"github.com/googlecloudplatform/gcs-fuse-csi-driver/proto/mounter"
 	"golang.org/x/net/context"
 	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
@@ -42,8 +43,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 	mount "k8s.io/mount-utils"
-
-	"github.com/googlecloudplatform/gcs-fuse-csi-driver/proto/mounter"
 )
 
 const (
@@ -878,6 +877,8 @@ func (s *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolu
 	return resp, err
 }
 
+// executeNodeStageVolume performs the core NodeStageVolume logic, including validation, mounter pod verification, and GCSFuse mounting.
+// readOnly is passed as false to parseRequestArguments because for NodeStageVolume we rely on NodePublishVolume to correctly apply access via bind mounts.
 func (s *nodeServer) executeNodeStageVolume(ctx context.Context, req *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error) {
 	if s.driver.config.FeatureOptions == nil ||
 		s.driver.config.FeatureOptions.SharedMountOptions == nil ||
@@ -919,6 +920,7 @@ func (s *nodeServer) executeNodeStageVolume(ctx context.Context, req *csi.NodeSt
 	var profile *profiles.ProfileConfig
 	if profilesEnabled {
 		klog.V(4).Infof("NodeStageVolume gcsfuse profiles feature is enabled for mounter pod %s/%s", podNamespace, podName)
+
 		profile, err = profiles.BuildProfileConfig(&profiles.BuildProfileConfigParams{
 			VolumeName:          pvName,
 			Clientset:           s.k8sClients,
@@ -937,7 +939,7 @@ func (s *nodeServer) executeNodeStageVolume(ctx context.Context, req *csi.NodeSt
 	}
 
 	// Validate arguments
-	args, err := parseRequestArguments(volumeID, false, req.GetVolumeCapability(), vc)
+	args, err := parseRequestArguments(volumeID, false /* readOnly */, req.GetVolumeCapability(), vc)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "failed to parse request arguments: %v", err)
 	}

@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        v3.21.12
-// source: proto/mounter/mounter.proto
+// source: mounter.proto
 
 package mounter
 
@@ -32,7 +32,7 @@ type MountRequest struct {
 
 func (x *MountRequest) Reset() {
 	*x = MountRequest{}
-	mi := &file_proto_mounter_mounter_proto_msgTypes[0]
+	mi := &file_mounter_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -44,7 +44,7 @@ func (x *MountRequest) String() string {
 func (*MountRequest) ProtoMessage() {}
 
 func (x *MountRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_mounter_mounter_proto_msgTypes[0]
+	mi := &file_mounter_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -57,7 +57,7 @@ func (x *MountRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MountRequest.ProtoReflect.Descriptor instead.
 func (*MountRequest) Descriptor() ([]byte, []int) {
-	return file_proto_mounter_mounter_proto_rawDescGZIP(), []int{0}
+	return file_mounter_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *MountRequest) GetMountPoint() string {
@@ -89,7 +89,7 @@ type MountResponse struct {
 
 func (x *MountResponse) Reset() {
 	*x = MountResponse{}
-	mi := &file_proto_mounter_mounter_proto_msgTypes[1]
+	mi := &file_mounter_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -101,7 +101,7 @@ func (x *MountResponse) String() string {
 func (*MountResponse) ProtoMessage() {}
 
 func (x *MountResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_mounter_mounter_proto_msgTypes[1]
+	mi := &file_mounter_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -114,14 +114,14 @@ func (x *MountResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MountResponse.ProtoReflect.Descriptor instead.
 func (*MountResponse) Descriptor() ([]byte, []int) {
-	return file_proto_mounter_mounter_proto_rawDescGZIP(), []int{1}
+	return file_mounter_proto_rawDescGZIP(), []int{1}
 }
 
-var File_proto_mounter_mounter_proto protoreflect.FileDescriptor
+var File_mounter_proto protoreflect.FileDescriptor
 
-const file_proto_mounter_mounter_proto_rawDesc = "" +
+const file_mounter_proto_rawDesc = "" +
 	"\n" +
-	"\x1bproto/mounter/mounter.proto\x12\amounter\"q\n" +
+	"\rmounter.proto\x12\amounter\"q\n" +
 	"\fMountRequest\x12\x1f\n" +
 	"\vmount_point\x18\x01 \x01(\tR\n" +
 	"mountPoint\x12\x1b\n" +
@@ -132,23 +132,23 @@ const file_proto_mounter_mounter_proto_rawDesc = "" +
 	"\x05Mount\x12\x15.mounter.MountRequest\x1a\x16.mounter.MountResponseBBZ@github.com/googlecloudplatform/gcs-fuse-csi-driver/proto/mounterb\x06proto3"
 
 var (
-	file_proto_mounter_mounter_proto_rawDescOnce sync.Once
-	file_proto_mounter_mounter_proto_rawDescData []byte
+	file_mounter_proto_rawDescOnce sync.Once
+	file_mounter_proto_rawDescData []byte
 )
 
-func file_proto_mounter_mounter_proto_rawDescGZIP() []byte {
-	file_proto_mounter_mounter_proto_rawDescOnce.Do(func() {
-		file_proto_mounter_mounter_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_mounter_mounter_proto_rawDesc), len(file_proto_mounter_mounter_proto_rawDesc)))
+func file_mounter_proto_rawDescGZIP() []byte {
+	file_mounter_proto_rawDescOnce.Do(func() {
+		file_mounter_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_mounter_proto_rawDesc), len(file_mounter_proto_rawDesc)))
 	})
-	return file_proto_mounter_mounter_proto_rawDescData
+	return file_mounter_proto_rawDescData
 }
 
-var file_proto_mounter_mounter_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
-var file_proto_mounter_mounter_proto_goTypes = []any{
+var file_mounter_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_mounter_proto_goTypes = []any{
 	(*MountRequest)(nil),  // 0: mounter.MountRequest
 	(*MountResponse)(nil), // 1: mounter.MountResponse
 }
-var file_proto_mounter_mounter_proto_depIdxs = []int32{
+var file_mounter_proto_depIdxs = []int32{
 	0, // 0: mounter.Mounter.Mount:input_type -> mounter.MountRequest
 	1, // 1: mounter.Mounter.Mount:output_type -> mounter.MountResponse
 	1, // [1:2] is the sub-list for method output_type
@@ -158,26 +158,26 @@ var file_proto_mounter_mounter_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for field type_name
 }
 
-func init() { file_proto_mounter_mounter_proto_init() }
-func file_proto_mounter_mounter_proto_init() {
-	if File_proto_mounter_mounter_proto != nil {
+func init() { file_mounter_proto_init() }
+func file_mounter_proto_init() {
+	if File_mounter_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_mounter_mounter_proto_rawDesc), len(file_proto_mounter_mounter_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_mounter_proto_rawDesc), len(file_mounter_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_proto_mounter_mounter_proto_goTypes,
-		DependencyIndexes: file_proto_mounter_mounter_proto_depIdxs,
-		MessageInfos:      file_proto_mounter_mounter_proto_msgTypes,
+		GoTypes:           file_mounter_proto_goTypes,
+		DependencyIndexes: file_mounter_proto_depIdxs,
+		MessageInfos:      file_mounter_proto_msgTypes,
 	}.Build()
-	File_proto_mounter_mounter_proto = out.File
-	file_proto_mounter_mounter_proto_goTypes = nil
-	file_proto_mounter_mounter_proto_depIdxs = nil
+	File_mounter_proto = out.File
+	file_mounter_proto_goTypes = nil
+	file_mounter_proto_depIdxs = nil
 }

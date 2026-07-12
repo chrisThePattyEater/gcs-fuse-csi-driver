@@ -35,6 +35,7 @@ import (
 	"github.com/googlecloudplatform/gcs-fuse-csi-driver/pkg/cloud_provider/storage"
 	"github.com/googlecloudplatform/gcs-fuse-csi-driver/pkg/metrics"
 	"github.com/googlecloudplatform/gcs-fuse-csi-driver/pkg/util"
+	"github.com/googlecloudplatform/gcs-fuse-csi-driver/proto/mounter"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -50,7 +51,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/googlecloudplatform/gcs-fuse-csi-driver/proto/mounter"
 )
 
 var testVolumeCapability = &csi.VolumeCapability{

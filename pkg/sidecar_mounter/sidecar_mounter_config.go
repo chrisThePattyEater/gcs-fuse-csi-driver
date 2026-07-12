@@ -73,6 +73,7 @@ type MountConfig struct {
 	EnableAutoGoMemLimit           bool                  `json:"-"`
 	AutoGoMemLimitRatio            float64               `json:"-"`
 	StorageEndpoint                string                `json:"-"`
+	SharedMountPoint               string                `json:"-"`
 }
 
 // EnsureErrWriter safely initializes ErrWriter to the correct writer if it is nil.
@@ -377,8 +378,13 @@ func (mc *MountConfig) prepareMountArgs() {
 		default:
 			klog.Warningf("got invalid value for %q: %q. Will discard and continue to mount.", util.FileCacheMediumConst, mc.FileCacheMedium)
 		}
-		// Ensure a unique directory is passed for each volume.
-		cacheDir = filepath.Join(cacheDir, ".volumes", mc.VolumeName)
+
+		isSidecarMounted := mc.SharedMountPoint == ""
+		// Ensure a unique directory is passed for each volume for sidecar architecture.
+		if isSidecarMounted {
+			cacheDir = filepath.Join(cacheDir, ".volumes", mc.VolumeName)
+		}
+
 		configFileFlagMap["cache-dir"] = cacheDir
 		mc.CacheDir = cacheDir
 		klog.Infof("Overriding cache-dir with %q for medium %q", cacheDir, mc.FileCacheMedium)

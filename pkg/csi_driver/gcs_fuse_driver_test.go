@@ -19,6 +19,7 @@ package driver
 
 import (
 	"errors"
+	"os"
 	"testing"
 
 	csi "github.com/container-storage-interface/spec/lib/go/csi"
@@ -66,6 +67,15 @@ func initTestDriver(t *testing.T, fm *mount.FakeMounter, clientset clientset.Int
 // Helper function for creating node server with a custom FakeClientset
 func initTestDriverWithCustomNodeServer(t *testing.T, fm *mount.FakeMounter, clientSet *clientset.FakeClientset, wiNodeLabelCheck bool) *GCSDriver {
 	t.Helper()
+
+	// Create a unique temporary directory for the shared node mount fuse socket files.
+	// This prevents parallel tests from deleting each others symlinks and ensures that we stay under the 108 byte unix path limit.
+	tmpSocketDir, err := os.MkdirTemp("/tmp", "fs")
+	if err != nil {
+		t.Fatalf("failed to create temp socket dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(tmpSocketDir) })
+
 	config := &GCSDriverConfig{
 		Name:                  "test-driver",
 		NodeID:                "test-node",
@@ -84,7 +94,7 @@ func initTestDriverWithCustomNodeServer(t *testing.T, fm *mount.FakeMounter, cli
 			SharedMountOptions: &SharedMountOptions{
 				Enabled:         true,
 				MounterPodImage: testImage,
-				FuseSocketDir:   "/tmp/fuse-sockets",
+				FuseSocketDir:   tmpSocketDir,
 			},
 		},
 		AssumeGoodSidecarVersion: true,
