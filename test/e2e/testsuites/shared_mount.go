@@ -20,12 +20,16 @@ package testsuites
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
+	"github.com/googlecloudplatform/gcs-fuse-csi-driver/pkg/util"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/kubernetes/test/e2e/framework"
+	e2epod "k8s.io/kubernetes/test/e2e/framework/pod"
 	e2evolume "k8s.io/kubernetes/test/e2e/framework/volume"
 	storageframework "k8s.io/kubernetes/test/e2e/storage/framework"
 	admissionapi "k8s.io/pod-security-admission/api"
@@ -60,6 +64,26 @@ func (t *gcsFuseCSISharedMountTestSuite) GetTestSuiteInfo() storageframework.Tes
 }
 
 func (t *gcsFuseCSISharedMountTestSuite) SkipUnsupportedTests(_ storageframework.TestDriver, _ storageframework.TestPattern) {
+}
+
+func setupAndDeploySharedMountPod(ctx context.Context, f *framework.Framework, vr *storageframework.VolumeResource, nodeAffinity ...string) (*specs.TestPod, *corev1.Pod) {
+	tPod := specs.NewTestPod(f.ClientSet, f.Namespace)
+	tPod.SetupVolume(vr, sharedVolName, sharedMountPath, false /* readOnly */)
+	if len(nodeAffinity) > 0 && nodeAffinity[0] != "" {
+		tPod.SetNodeAffinity(nodeAffinity[0], true /* sameNode */)
+	}
+	tPod.Create(ctx)
+	tPod.WaitForRunning(ctx)
+
+	// Verify client pod does NOT have a sidecar container injected.
+	tPod.VerifySidecarPresence(false /* expectPresent */)
+
+	// Verify a single Mounter Pod is created on the same node.
+	nodeName := tPod.GetNode()
+	specs.VerifyMounterPods(ctx, f.ClientSet, f.Namespace.Name, 1, nodeName)
+	mounterPod := specs.GetMounterPod(ctx, f.ClientSet, f.Namespace.Name, nodeName)
+
+	return tPod, mounterPod
 }
 
 func (t *gcsFuseCSISharedMountTestSuite) DefineTests(driver storageframework.TestDriver, pattern storageframework.TestPattern) {
@@ -142,25 +166,13 @@ func (t *gcsFuseCSISharedMountTestSuite) DefineTests(driver storageframework.Tes
 		nodeName := sidecarTestPod.GetNode()
 
 		ginkgo.By(fmt.Sprintf("Configuring and deploying sharedMountTestPod referencing the shared mount PVC on node %s", nodeName))
-		sharedMountTestPod := specs.NewTestPod(f.ClientSet, f.Namespace)
-		sharedMountTestPod.SetupVolume(sharedVR, sharedVolName, sharedMountPath, false /* readOnly */)
-		sharedMountTestPod.SetNodeAffinity(nodeName, true /* sameNode */)
-		sharedMountTestPod.Create(ctx)
+		sharedMountTestPod, _ := setupAndDeploySharedMountPod(ctx, f, sharedVR, nodeName)
 		defer sharedMountTestPod.Cleanup(ctx)
-
-		ginkgo.By("Waiting for sharedMountTestPod to be running")
-		sharedMountTestPod.WaitForRunning(ctx)
 		gomega.Expect(sharedMountTestPod.GetNode()).To(gomega.Equal(nodeName), "expected sharedMountTestPod to run on the same node as sidecarTestPod")
 
-		// 4. Verify sidecarTestPod has a sidecar container injected while sharedMountTestPod does not, and a single Mounter Pod is created for sharedMountTestPod.
+		// 4. Verify sidecarTestPod has a sidecar container injected.
 		ginkgo.By("Verifying sidecarTestPod has a sidecar container injected")
 		sidecarTestPod.VerifySidecarPresence(true /* expectPresent */)
-
-		ginkgo.By("Verifying sharedMountTestPod does NOT have a sidecar container injected")
-		sharedMountTestPod.VerifySidecarPresence(false /* expectPresent */)
-
-		ginkgo.By("Verifying a single Mounter Pod is created for sharedMountTestPod on the same node")
-		specs.VerifyMounterPods(ctx, f.ClientSet, f.Namespace.Name, 1, nodeName)
 
 		// 5. Verify that both pods can successfully read and write to their respective volumes without conflicts.
 		ginkgo.By("Verifying sidecarTestPod can write and read from its sidecar-mounted volume")
@@ -195,41 +207,22 @@ func (t *gcsFuseCSISharedMountTestSuite) DefineTests(driver storageframework.Tes
 
 		// 1. Configure and deploy Pod 1 referencing the dynamic shared-mount PVC.
 		ginkgo.By("Configuring and deploying the first pod referencing the dynamic shared-mount PVC")
-		tPod1 := specs.NewTestPod(f.ClientSet, f.Namespace)
-		tPod1.SetupVolume(sharedVR, sharedVolName, sharedMountPath, false /* readOnly */)
-		tPod1.Create(ctx)
+		tPod1, _ := setupAndDeploySharedMountPod(ctx, f, sharedVR)
 		defer tPod1.Cleanup(ctx)
-
-		ginkgo.By("Waiting for the first pod to be running and getting its node")
-		tPod1.WaitForRunning(ctx)
 		nodeName := tPod1.GetNode()
 
 		// 2. Configure and deploy Pod 2 on the same node referencing the same PVC.
 		ginkgo.By(fmt.Sprintf("Configuring and deploying the second pod on node %s referencing the same PVC", nodeName))
-		tPod2 := specs.NewTestPod(f.ClientSet, f.Namespace)
-		tPod2.SetupVolume(sharedVR, sharedVolName, sharedMountPath, false /* readOnly */)
-		tPod2.SetNodeAffinity(nodeName, true /* sameNode */)
-		tPod2.Create(ctx)
+		tPod2, _ := setupAndDeploySharedMountPod(ctx, f, sharedVR, nodeName)
 		defer tPod2.Cleanup(ctx)
-
-		ginkgo.By("Waiting for the second pod to be running")
-		tPod2.WaitForRunning(ctx)
 		gomega.Expect(tPod2.GetNode()).To(gomega.Equal(nodeName), "expected second pod to run on the same node as first pod")
 
-		// 3. Verify sidecar absence on client pods and exactly 1 Mounter Pod created on the node.
-		ginkgo.By("Verifying client pods do NOT have sidecar containers injected")
-		tPod1.VerifySidecarPresence(false /* expectPresent */)
-		tPod2.VerifySidecarPresence(false /* expectPresent */)
-
-		ginkgo.By("Verifying exactly 1 Mounter Pod is created for the dynamic shared-mount volume on the node")
-		specs.VerifyMounterPods(ctx, f.ClientSet, f.Namespace.Name, 1, nodeName)
-
-		// 4. Verify RW mount point in both pods.
+		// 3. Verify RW mount point in both pods.
 		ginkgo.By("Verifying RW mount point in both pods")
 		tPod1.VerifyRWMount(f, sharedMountPath)
 		tPod2.VerifyRWMount(f, sharedMountPath)
 
-		// 5. Verify dynamic multi-bucket read and write operations across both pods.
+		// 4. Verify dynamic multi-bucket read and write operations across both pods.
 		ginkgo.By("Verifying both pods can read and write across all authorized buckets")
 		for _, bucket := range buckets {
 			pod1File := fmt.Sprintf("%s/%s/pod1-data.txt", sharedMountPath, bucket)
@@ -247,5 +240,71 @@ func (t *gcsFuseCSISharedMountTestSuite) DefineTests(driver storageframework.Tes
 			tPod1.VerifyReadFile(f, pod2File, pod2Content)
 			tPod2.VerifyReadFile(f, pod1File, pod1Content)
 		}
+	})
+
+	// TC: Kernel Parameters with Shared Mount Test
+	// Verify that kernel parameters (read_ahead_kb, kernel-params.json) are correctly applied
+	// when using shared mount. The kernel params file should be created in the Mounter Pod's emptyDir,
+	// not the customer Pod's.
+	// 1. Create a PodTemplate and a PV/PVC with sharedMount: true and a custom read_ahead_kb mount option.
+	// 2. Create a workload pod referencing the PVC.
+	// 3. Verify that kernel-params.json is created inside the Mounter Pod's gke-gcsfuse-tmp emptyDir volume
+	//    instead of the workload pod's volume.
+	// 4. Verify that the CSI Node driver detects kernel-params.json and updates the host node kernel parameters.
+	// 5. Verify that the workload pod can successfully read and write data to the volume.
+	ginkgo.It("[shared-mount] should verify kernel parameters are applied via mounter pod and host node settings are updated", func() {
+		skipIfKernelParamsNotSupported()
+		init(1, specs.EnableCustomReadAhead)
+		defer cleanup()
+
+		gomega.Expect(l.volumeResourceList).To(gomega.HaveLen(1))
+		gomega.Expect(l.volumeResourceList[0]).ToNot(gomega.BeNil())
+
+		sharedVR := l.volumeResourceList[0]
+
+		// 1. Configure and deploy the workload pod referencing the PVC.
+		ginkgo.By("Configuring and deploying the workload pod referencing the shared-mount PVC")
+		workloadPod, mounterPod := setupAndDeploySharedMountPod(ctx, f, sharedVR)
+		defer workloadPod.Cleanup(ctx)
+
+		// 2. Verify kernel-params.json is created inside the Mounter Pod's gke-gcsfuse-tmp emptyDir volume.
+		ginkgo.By("Verifying kernel-params.json is created inside the Mounter Pod's gke-gcsfuse-tmp volume")
+		mounterKernelParamsPath := fmt.Sprintf("/gcsfuse-tmp/.volumes/%s/kernel-params.json", sharedVR.Pv.Name)
+		var configData string
+		gomega.Eventually(func() error {
+			out, _, execErr := e2epod.ExecCommandInContainerWithFullOutput(f, mounterPod.Name, util.MounterPodNamePrefix, "/bin/sh", "-c", fmt.Sprintf("cat %s", mounterKernelParamsPath))
+			if execErr != nil {
+				return execErr
+			}
+			configData = out
+			return nil
+		}, retryTimeout, retryPolling).Should(gomega.Succeed(), "failed to read kernel-params.json in Mounter Pod")
+
+		// Verify kernel-params.json contains max-read-ahead-kb matching specs.ReadAheadCustomReadAheadKb.
+		pattern := fmt.Sprintf(kernelParamExtractRegex, regexp.QuoteMeta(string(MaxReadAheadKb)))
+		re := regexp.MustCompile(pattern)
+		matches := re.FindStringSubmatch(configData)
+		gomega.Expect(matches).To(gomega.HaveLen(2), "expected to extract max-read-ahead-kb from kernel-params.json")
+		gomega.Expect(matches[1]).To(gomega.Equal(specs.ReadAheadCustomReadAheadKb), "expected max-read-ahead-kb in kernel-params.json to match custom value")
+
+		// 3. Verify kernel-params.json is NOT in the workload pod's volume or filesystem.
+		ginkgo.By("Verifying kernel-params.json is NOT created inside the workload pod")
+		workloadPod.VerifyExecInPodFail(f, specs.TesterContainerName, "ls /gcsfuse-tmp", 1)
+		workloadPod.VerifyExecInPodFail(f, specs.TesterContainerName, fmt.Sprintf("ls %s/kernel-params.json", sharedMountPath), 1)
+
+		// 4. Verify CSI Node driver detects kernel-params.json and updates the host node kernel parameters.
+		ginkgo.By("Verifying host node read_ahead_kb kernel parameter is updated to the custom value")
+		gomega.Eventually(func() string {
+			bdi := workloadPod.VerifyExecInPodSucceedWithOutput(f, specs.TesterContainerName, fmt.Sprintf(`mountpoint -d "%s"`, sharedMountPath))
+			readAheadPath := fmt.Sprintf("/sys/class/bdi/%s/read_ahead_kb", strings.TrimSpace(bdi))
+			return strings.TrimSpace(workloadPod.VerifyExecInPodSucceedWithOutput(f, specs.TesterContainerName, "cat "+readAheadPath))
+		}, retryTimeout, retryPolling).Should(gomega.Equal(specs.ReadAheadCustomReadAheadKb))
+
+		// 5. Verify workload pod can read and write data to the volume.
+		ginkgo.By("Verifying workload pod can write and read from its shared-mounted volume")
+		workloadPod.VerifyRWMount(f, sharedMountPath)
+		testFilePath := fmt.Sprintf("%s/kernel-params-test-data.txt", sharedMountPath)
+		testContent := "hello from shared mount kernel params test"
+		workloadPod.VerifyWriteAndReadFile(f, testFilePath, testContent)
 	})
 }

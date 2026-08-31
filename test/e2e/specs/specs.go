@@ -201,6 +201,31 @@ func VerifyMounterPods(ctx context.Context, c clientset.Interface, namespace str
 	gomega.Expect(mounterPods.Items).To(gomega.HaveLen(expectedCount), fmt.Sprintf("expected %d Mounter Pod(s) on node %s", expectedCount, expectedNodeName))
 }
 
+// GetMounterPod returns the Mounter Pod scheduled on expectedNodeName in the namespace.
+func GetMounterPod(ctx context.Context, c clientset.Interface, namespace string, expectedNodeName string) *corev1.Pod {
+	if expectedNodeName == "" {
+		framework.Failf("expectedNodeName must be provided to get Mounter Pod")
+	}
+	listOpts := metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("%s=%s", webhook.SharedMountLabel, util.TrueStr),
+		FieldSelector: fmt.Sprintf("spec.nodeName=%s", expectedNodeName),
+	}
+
+	mounterPods, err := c.CoreV1().Pods(namespace).List(ctx, listOpts)
+	framework.ExpectNoError(err, "failed to list mounter pods")
+	gomega.Expect(mounterPods.Items).To(gomega.HaveLen(1), fmt.Sprintf("expected 1 Mounter Pod on node %s", expectedNodeName))
+	return &mounterPods.Items[0]
+}
+
+// ExecInMounterPod executes a shell command inside the mounter container of a Mounter Pod and returns stdout.
+func ExecInMounterPod(f *framework.Framework, pod *corev1.Pod, shExec string) string {
+	stdout, stderr, err := execCommandInContainerWithFullOutputWithRetry(f, pod.Name, util.MounterPodNamePrefix, "/bin/sh", "-c", shExec)
+	framework.ExpectNoError(err,
+		"%q in mounter pod %s should succeed, but failed with error message %q\nstdout: %s\nstderr: %s",
+		shExec, pod.Name, err, stdout, stderr)
+	return stdout
+}
+
 type TestPod struct {
 	client    clientset.Interface
 	pod       *corev1.Pod
