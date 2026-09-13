@@ -20,10 +20,21 @@ set -o pipefail
 
 echo "Verifying gomod..."
 export GO111MODULE=on
-echo "go mod tidy"
-go mod tidy
-echo "go mod vendor"
-go mod vendor
+
+PKG_ROOT=$(git rev-parse --show-toplevel)
+
+# This repo has two modules that both vendor their dependencies: the driver at the
+# root and the e2e suite in test/. Both have to be verified. A dependency bump that
+# only syncs the root module leaves test/vendor stale, which the GitHub CI build
+# does not notice because it compiles the e2e suite with -mod=readonly, but which
+# fails the prow e2e jobs, where ginkgo compiles with the default -mod=vendor.
+for module in "." "test"; do
+  echo "go mod tidy (${module})"
+  go -C "${PKG_ROOT}/${module}" mod tidy
+  echo "go mod vendor (${module})"
+  go -C "${PKG_ROOT}/${module}" mod vendor
+done
+
 diff=`git diff`
 if [[ -n "${diff}" ]]; then
   echo "${diff}"
